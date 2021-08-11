@@ -1,0 +1,199 @@
+---
+title: "R Notebook"
+author: '2049352'
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  pdf_document: default
+  html_notebook: default
+editor_options:
+  chunk_output_type: console
+---
+
+#The Aim of this Research work is to evaluate if there is a correlation between NH4 load and other operational parameters such as DO with N2O emissions. 
+
+
+```{r}
+# load Packages
+
+library(xts)
+library(lubridate)
+library(robustbase)
+library(readr)
+library(rlist)
+library(zoo)
+library(imputeTS)
+library(wvtool)
+library(readr)
+library(neuralnet)
+library(kernlab)
+library(class)
+library(dlookr)
+library(funModeling)
+library(ggplot2)
+library(plyr)
+library(dplyr)
+```
+
+
+
+# Organise and clean the data
+```{r}
+#Data with N2O measurements from analyzer
+
+Spernal_ghg <- read_csv("ghg_final.csv", 
+                        col_types = cols(TimeStamp = col_datetime(format = "%d/%m/%Y %H:%M")))
+
+View(Spernal_ghg)
+```
+
+
+```{r}
+#Data from sensors
+
+Spernal_all <- read_csv("Spernal_all_3.csv", 
+                        col_types = cols(TimeStamp = col_datetime(format = "%d/%m/%Y %H:%M")))
+
+View(Spernal_all)
+```
+
+
+
+```{r}
+#Convert Online Sensors to xts and store as numeric
+
+#timeseries<-seq(ymd_hm('2018-07-31 00:00'), ymd_hm('2018-12-02 23:45'), by = 'hour')
+time_index <- seq(from = as.POSIXct('2018-07-31 00:00'), 
+                  to = as.POSIXct('2018-12-02 23:45'), 
+                  by = "15 min")
+
+d_data<-as.POSIXct(Spernal_all$TimeStamp, "%Y-%m-%d %H:%M")
+
+xt_data <- xts(Spernal_all[,-1], 
+               order.by=d_data) # The 1:28902 define the rows with datetime for this variable
+
+xt_data <- xt_data[ ! duplicated( index(xt_data), fromLast = FALSE ),  ] ## remove duplicate datetimes
+
+xt_data_hourly<-period.apply(xt_data, endpoints(xt_data, "hours"), mean) ##aggregate to hourly data
+
+index(xt_data_hourly)<-align.time(index(xt_data_hourly), 60*60) ## #round time index
+
+
+storage.mode(xt_data) <- "numeric"
+
+```
+
+
+```{r}
+## Integrate N2O
+
+
+N2O_data<-as.POSIXct(Spernal_ghg$TimeStamp, "%Y-%m-%d %H:%M")
+
+ghg_data <- xts(Spernal_ghg[,-1], 
+                order.by=N2O_data) # The 1:28902 define the rows with datetime for this variable
+```
+
+
+
+```{r}
+# merge both datasets
+
+all_data<-merge(xt_data_hourly, ghg_data)
+```
+
+
+
+```{r}
+#Calculate Return Activated Sludge (RAS) flow
+all_data$RAS_m3_d<-all_data$RAS_flow*60*60*24/1000/3
+
+### calculate nh4 load
+all_data$nh4_load<-all_data$RAS_m3_d*all_data$amm_in/1000
+```
+
+
+
+```{r}
+#convert all data to data frame
+all_data_df<-as.data.frame(all_data)
+```
+
+
+
+```{r}
+# Remove Missing data
+all_data_df<-na.omit(all_data_df)
+
+#Compute summary of merged cleaned data
+summary(all_data_df)
+
+head(all_data_df)
+```
+
+
+```{r}
+# Compute a diagnosis report of merged data
+dlookr::diagnose_report(all_data_df)
+```
+
+
+```{r}
+#visualising data in different locations(3)
+loc3<-subset(all_data_df, all_data_df$location==3) 
+
+plot(loc3$n2o_gm2, type="l", col= "blue")
+
+plot(loc3$nh4_load, type="l",col= "red" )
+
+plot(loc3$Centrate_flow, type="l",col= "green")
+
+plot(loc3$ch4_gm2, type= "l", col= "brown")
+
+plot(loc3$temp, type= "l", col= "black")
+
+plot(loc3$DO3, type= "l", col= "black")
+
+
+dlookr::plot_correlate(loc3)
+
+cor(loc3$n2o_gm2,loc3$nh4_load )
+
+cor.test(loc3$n2o_gm2,loc3$nh4_load )
+cor.test(loc3$n2o_gm2,loc3$Centrate_flow)
+```
+
+
+### Selection of variables to check correlation in location 3
+```{r}
+loc3.cont<-subset(loc3, select = c("n2o_gm2","ch4_gm2","RAS_m3_d","nh4_load","temp","DO3","Storm.flow_3pg","FFT_flow","Centrate_flow"))
+```
+
+
+```{r}
+dlookr::plot_correlate(loc3.cont)
+```
+
+
+
+```{r}
+summary(loc3)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
